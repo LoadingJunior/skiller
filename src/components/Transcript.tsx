@@ -15,7 +15,7 @@ const Transcript: React.FC<TranscriptProps> = ({ transcript, IA_name }) => {
   }, [transcript]);
 
   return (
-    <div className="flex-grow p-4 md:p-6 space-y-6 overflow-y-auto">
+    <div className="grow p-4 md:p-6 space-y-6 overflow-y-auto">
       {transcript.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full text-gray-400">
           <svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 mb-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Zm-1 13.93A5.002 5.002 0 0 0 12 21a5 5 0 0 0 5-5.07V11h-2v3.93a3 3 0 0 1-6 0V11H7v3.93ZM19 11h-2V5a5 5 0 0 0-10 0v6H5a1 1 0 0 0 0 2h2v1.07A7.002 7.002 0 0 0 12 23a7 7 0 0 0 7-7.07V13h2a1 1 0 0 0 0-2Z" /></svg>
@@ -30,7 +30,7 @@ const Transcript: React.FC<TranscriptProps> = ({ transcript, IA_name }) => {
             }`}
           >
             {entry.speaker === Speaker.Model && (
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex-shrink-0 flex items-center justify-center font-bold text-sm">
+              <div className="w-8 h-8 rounded-full bg-indigo-500 shrink-0 flex items-center justify-center font-bold text-sm">
                 {IA_name?.charAt(0)}
               </div>
             )}
@@ -44,7 +44,7 @@ const Transcript: React.FC<TranscriptProps> = ({ transcript, IA_name }) => {
               <p className="whitespace-pre-wrap">{entry.text}</p>
             </div>
              {entry.speaker === Speaker.User && (
-              <div className="w-8 h-8 rounded-full bg-gray-600 flex-shrink-0 flex items-center justify-center font-bold text-sm">
+              <div className="w-8 h-8 rounded-full bg-gray-600 shrink-0 flex items-center justify-center font-bold text-sm">
                 A
               </div>
             )}
