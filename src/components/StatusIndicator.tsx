@@ -1,6 +1,5 @@
-
 import React from 'react';
-import type { SessionState } from '../../types';
+import type { SessionState } from '../types';
 
 interface StatusIndicatorProps {
   state: SessionState;

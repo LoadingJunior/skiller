@@ -1,7 +1,6 @@
-
 import React, { useRef, useEffect } from 'react';
-import type { TranscriptEntry } from '../../types';
-import { Speaker } from '../../types';
+import type { TranscriptEntry } from '../types';
+import { Speaker } from '../types';
 
 interface TranscriptProps {
   transcript: TranscriptEntry[];
