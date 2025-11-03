@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
-// Fix: Removed `LiveSession` and added `Blob` to the import since `LiveSession` is not an exported type.
 import {
   GoogleGenAI,
   Modality,
@@ -7,27 +6,23 @@ import {
   type Blob,
 } from "@google/genai";
 import { encode, decodeBase64, decodeAudioData } from "./utils/audio";
-import type { TranscriptEntry, SessionState } from "../types";
-import { Speaker } from "../types";
+import type { TranscriptEntry, SessionState } from "./types";
+import { Speaker } from "./types";
 import MicrophoneIcon from "./components/MicrophoneIcon";
 import StatusIndicator from "./components/StatusIndicator";
 import Transcript from "./components/Transcript";
+import { supabase } from "./lib/supabase";
 
 interface LiveSession {
   close: () => void;
   sendRealtimeInput: (input: { media: Blob }) => void;
 }
 
-const SYSTEM_INSTRUCTION = `
-You are José Alves, a honest, professional and non-encouraging engineering manager interviewer looking to assess a junior developer behavioral skills.
-You are a leader of an important development team on the company and because of that, needs to be assertive when hiring a new developer for your team. 
-Start the conversation in portuguese (brazil) with a brief introduction and ask 1 question about the candidate's background (name, ...), then, ask 1 question that evaluate the candidate's problem solving skills, teamwork and adaptability to changes.
-If you feel you need to, ask at most two follow-up questions to get more details from the candidate's histories. Keep your questions concise.
-Listen carefully to the candidate's responses before moving on to the next question, evaluating storytelling, adequacy to the STAR framework and if the story seems interesting and belivable. 
-At the end, give an honest and real feedback to the candidate accordingly to your persona and all the responsibilities it brings.
-After that, on the last message, send a feedback: grade (from 0 to 10) for the following topics:
-STAR Method, Storytelling, Persuasion and Clarity with the following structure: <topic>: <note>.
-`;
+const MVP_USER_ID = "d9b24999-4a64-452b-b382-563ee13eebce";
+const MVP_SCENARIO_ID = "3ae13d78-c10f-4993-8b89-83257031590e";
+const MVP_BADGE_ID = "6a0174ba-4475-4974-8116-1ca09571b6e5";
+
+
 const INPUT_SAMPLE_RATE = 24000;
 const OUTPUT_SAMPLE_RATE = 24000;
 
@@ -35,6 +30,10 @@ const App: React.FC = () => {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [systemInstruction, setSystemInstruction] = useState<string | null>(null);
+  const [isLoadingPrompt, setIsLoadingPrompt] = useState<boolean>(true);
 
   const sessionPromise = useRef<Promise<LiveSession> | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -48,6 +47,37 @@ const App: React.FC = () => {
     nextStartTime: 0,
     sources: new Set<AudioBufferSourceNode>(),
   });
+
+  useEffect(() => {
+    const fetchPrompt = async () => {
+      setIsLoadingPrompt(true);
+      try {
+        const { data, error } = await supabase
+          .from("scenarios")
+          .select("ia_context_prompt")
+          .eq("id", MVP_SCENARIO_ID) 
+          .single();
+
+        if (error) throw error;
+        
+        if (data && data.ia_context_prompt) {
+          setSystemInstruction(data.ia_context_prompt); 
+        } else {
+          throw new Error("Cenário não encontrado ou prompt vazio no Supabase.");
+        }
+
+      } catch (error) {
+        const dbError = error as { message: string };
+        console.error("Falha ao carregar prompt do Supabase:", error);
+        setErrorMessage(`Erro fatal: Não foi possível carregar o cenário. ${dbError.message}`);
+        setSessionState("error");
+      } finally {
+        setIsLoadingPrompt(false);
+      }
+    };
+
+    fetchPrompt();
+  }, []);
 
   const stopSession = useCallback(async () => {
     if (sessionPromise.current) {
@@ -70,12 +100,94 @@ const App: React.FC = () => {
     audioQueue.current = { nextStartTime: 0, sources: new Set() };
 
     setSessionState("idle");
+    setCurrentSessionId(null);
   }, []);
 
+  const parseFeedback = (modelText: string) => {
+    const summary = modelText.split("STAR Method:")[0]?.trim() || "Feedback não capturado.";
+    
+    const scores = {
+      structure: 0,
+      impact: 0,
+      persuasion: 0,
+      clarity: 0,
+    };
+
+    const starMatch = modelText.match(/STAR Method: (\d+)/);
+    if (starMatch) scores.structure = parseInt(starMatch[1], 10);
+    
+    const storyMatch = modelText.match(/Storytelling: (\d+)/);
+    if (storyMatch) scores.impact = parseInt(storyMatch[1], 10);
+
+    const persMatch = modelText.match(/Persuasion: (\d+)/);
+    if (persMatch) scores.persuasion = parseInt(persMatch[1], 10);
+    
+    const clarityMatch = modelText.match(/Clarity: (\d+)/);
+    if (clarityMatch) scores.clarity = parseInt(clarityMatch[1], 10);
+    
+    return { summary, scores };
+  };
+
+  const saveFinalFeedback = async (sessionId: string, scores: any, summary: string) => {
+    if (!sessionId) return;
+
+    const { error: feedbackError } = await supabase
+      .from('session_feedback')
+      .insert({
+        session_id: sessionId,
+        score_structure: scores.structure,
+        score_impact: scores.impact,
+        score_persuasion: scores.persuasion,
+        score_clarity: scores.clarity,
+        ia_summary: summary
+      });
+    if (feedbackError) console.error("Erro ao salvar feedback:", feedbackError);
+    
+    const { error: badgeError } = await supabase
+      .from('user_badges')
+      .insert({
+        user_id: MVP_USER_ID,
+        badge_id: MVP_BADGE_ID
+      });
+    if (badgeError && badgeError.code !== '23505') {
+      console.warn("Erro ao conceder medalha:", badgeError);
+    }
+  };
+
   const startSession = useCallback(async () => {
+    if (isLoadingPrompt || !systemInstruction) {
+      setErrorMessage("Aguarde, carregando cenário...");
+      return; 
+    }
+
     setSessionState("connecting");
     setErrorMessage(null);
     setTranscript([]);
+
+    let sessionId: string | null = null;
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('simulation_sessions')
+        .insert({
+          user_id: MVP_USER_ID,
+          scenario_id: MVP_SCENARIO_ID
+        })
+        .select('id')
+        .single();
+      
+      if (sessionError) throw sessionError;
+      
+      sessionId = sessionData.id;
+      setCurrentSessionId(sessionId);
+
+    } catch (error) {
+      console.error("Falha ao criar sessão no Supabase:", error);
+      const dbError = error as { message: string };
+      setErrorMessage(`Erro de BD: ${dbError.message}. Tente novamente.`);
+      setSessionState("error");
+      return;
+    }
 
     try {
       if (!process.env.API_KEY) {
@@ -87,7 +199,6 @@ const App: React.FC = () => {
         audio: true,
       });
 
-      // Cast window to `any` to support `webkitAudioContext` for older browsers without TypeScript errors.
       audioContexts.current.input = new (window.AudioContext ||
         (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
       audioContexts.current.output = new (window.AudioContext ||
@@ -103,7 +214,7 @@ const App: React.FC = () => {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Enceladus" } },
             languageCode: "pt-BR",
           },
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction: systemInstruction,
         },
         callbacks: {
           onopen: () => {
@@ -143,7 +254,7 @@ const App: React.FC = () => {
             }
           },
           onmessage: async (message: LiveServerMessage) => {
-            handleTranscription(message);
+            handleTranscription(message, sessionId);
             await handleAudio(message);
           },
           onerror: (e: ErrorEvent) => {
@@ -167,43 +278,28 @@ const App: React.FC = () => {
       setSessionState("error");
       await stopSession();
     }
-  }, [stopSession]);
+  }, [stopSession, systemInstruction, isLoadingPrompt]);
 
-  /**
-   * Placeholder function to persist a conversational turn to a backend server.
-   * You would replace the fetch call with a request to your actual API endpoint.
-   * @param turn An object containing the user's input and the model's response for the turn.
-   */
-  const persistTurn = async (turn: { user: string; model: string }) => {
-    console.log("Persisting turn to backend:", turn);
-    try {
-      console.log(turn);
-      /*const response = await fetch('https://your-backend-api.com/transcripts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: 'some-user-id', // Replace with an actual user identifier
-          sessionTimestamp: new Date().toISOString(),
-          turn,
-        }),
+  const persistTurn = async (sessionId: string, role: 'user' | 'ia', content: string) => {
+    if (!sessionId || !content.trim()) return; 
+
+    const { error } = await supabase
+      .from('messages')
+      .insert({
+        session_id: sessionId,
+        role: role,
+        content: content
       });
-
-      if (!response.ok) {
-        throw new Error(`API call failed with status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Successfully persisted turn:', result);
-    */
-    } catch (error) {
-      console.error("Failed to persist transcript:", error);
-      // Optionally, you could add this error to the UI state to notify the user.
+    
+    if (error) {
+      console.warn("Falha ao salvar mensagem:", error.message);
     }
   };
 
-  const handleTranscription = (message: LiveServerMessage) => {
+  const handleTranscription = (
+    message: LiveServerMessage,
+    sessionId: string | null
+  ) => {
     let newTranscriptEntry = false;
     let speaker: Speaker | null = null;
     let text = "";
@@ -249,23 +345,20 @@ const App: React.FC = () => {
       });
     }
 
-    if (message.serverContent?.turnComplete) {
-      // A "turn" is complete, meaning the user has finished speaking and the model has responded.
-      // This is the ideal place to persist the conversation.
+    if (message.serverContent?.turnComplete && sessionId) {
       const userInputText = transcriptionRefs.current.userInput;
       const modelOutputText = transcriptionRefs.current.modelOutput;
 
-      // =================================================================
-      // HEY! THIS IS WHERE YOU CAN SAVE THE CONVERSATION
-      // =================================================================
-      // You can call a function here to send the data to your backend.
-      // The `userInputText` and `modelOutputText` variables contain the
-      // full, final text for this completed conversational turn.
-      if (userInputText.trim() || modelOutputText.trim()) {
-        // Uncomment the line below to use the example persistence function:
-        persistTurn({ user: userInputText, model: modelOutputText });
+      persistTurn(sessionId, 'user', userInputText);
+      persistTurn(sessionId, 'ia', modelOutputText);
+
+      if (modelOutputText.includes("STAR Method:")) {
+        const { summary, scores } = parseFeedback(modelOutputText);
+
+        saveFinalFeedback(sessionId, scores, summary);
+        
+        stopSession();
       }
-      // =================================================================
 
       setTranscript((prev) =>
         prev.map((entry) => ({ ...entry, isFinal: true }))
@@ -326,6 +419,15 @@ const App: React.FC = () => {
   };
 
   const getButtonState = () => {
+    if (isLoadingPrompt) {
+      return {
+        text: "Carregando Cenário...",
+        disabled: true,
+        bg: "bg-gray-500",
+        pulse: true,
+      };
+    }
+
     switch (sessionState) {
       case "connecting":
         return {
@@ -352,7 +454,7 @@ const App: React.FC = () => {
       default:
         return {
           text: "Iniciar",
-          disabled: false,
+          disabled: !!errorMessage, 
           bg: "bg-purple-600 hover:bg-purple-700",
           pulse: false,
         };
@@ -379,7 +481,7 @@ const App: React.FC = () => {
             <p>{errorMessage}</p>
           </div>
         )}
-        <Transcript transcript={transcript} IA_name={"José Alves"} />
+        <Transcript transcript={transcript} IA_name={"Ricardo Vasconcelos"} />
       </main>
 
       <footer className="p-4 bg-gray-900/80 backdrop-blur-sm border-t border-gray-700">
