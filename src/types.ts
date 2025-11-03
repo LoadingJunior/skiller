@@ -1,4 +1,3 @@
-
 export enum Speaker {
   User = 'User',
   Model = 'Model',
