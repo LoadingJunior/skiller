@@ -51,7 +51,7 @@ const Login: React.FC = () => {
     <div className="min-h-screen bg-white flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8">
         <div>
-          <h1 className="text-5xl font-bold text-purple-700 text-left">
+          <h1 className="text-5xl font-bold text-center">
             <img
               src="/logo_name.svg"
               alt="Skiller Text"
@@ -152,7 +152,7 @@ const Login: React.FC = () => {
           Ainda não tem conta?{" "}
           <a
             href="#"
-            className="font-medium text-purple-600 hover:text-purple-500"
+            className="font-medium text-[#7A3FAE] hover:text-purple-500"
           >
             Cadastre-se
           </a>

@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { User } from "../types";
+import { supabase } from "../lib/supabase";
 
 type AuthContextType = {
-  user: string | null;
-  setUser: (id: string | null) => void;
+  user: User | null;
+  setUser: (user: User | null) => void;
   login: (id: string) => void;
   loading: boolean;
   logout: () => void;
@@ -13,18 +15,31 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  async function getUser(id: string): Promise<User | null> {
+    const { data, error } = await supabase.from("users").select("*").eq("id", id).single();
+    if (error) {
+      console.error("Error fetching user:", error);
+      return null;
+    }
+    return data as User;
+  }
 
   useEffect(() => {
     const id = localStorage.getItem("id");
-    setUser(id);
+    if(id){
+      getUser(id).then((userData) => {
+        setUser(userData);
+      });
+    }
     setLoading(false);
   }, []);
 
-  const login = (id: string) => {
+  const login = async (id: string) => {
     localStorage.setItem("id", id);
-    setUser(id);
+    setUser(await getUser(id));
   };
 
   const logout = () => {
@@ -34,7 +49,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   return (
     <AuthContext.Provider value={{ user, setUser, login, loading, logout }}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

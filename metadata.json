@@ -1,8 +1,0 @@
-
-{
-  "name": "Gemini AI Technical Interviewer",
-  "description": "An interactive technical interviewer powered by Gemini's Live API. Practice your frontend React skills in a real-time conversation.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}

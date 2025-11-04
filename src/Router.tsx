@@ -1,10 +1,11 @@
 import React from "react";
 import { createBrowserRouter, redirect, RouterProvider } from "react-router-dom";
 
-import App from "./App";
-import Login from "./pages/login";
 import { ProtectedRoute } from "./utils/ProtectedRoute";
 import { UnprotectedRoute } from "./utils/UnprotectedRoute";
+import Login from "./pages/login";
+import { Profile } from "./pages/Profile";
+import { Session } from "./pages/Session";
 
 const router = createBrowserRouter([
   {
@@ -21,8 +22,12 @@ const router = createBrowserRouter([
     children: [
       {
         path: "/",
-        element: <App />, 
+        element: <Profile />, 
       },
+      {
+        path: "/session",
+        element: <Session />,
+      }
     ], 
   },
   {

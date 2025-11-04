@@ -1,17 +1,20 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, use } from "react";
 import {
   GoogleGenAI,
   Modality,
   type LiveServerMessage,
   type Blob,
 } from "@google/genai";
-import { encode, decodeBase64, decodeAudioData } from "./utils/audio";
-import type { TranscriptEntry, SessionState } from "./types";
-import { Speaker } from "./types";
-import MicrophoneIcon from "./components/MicrophoneIcon";
-import StatusIndicator from "./components/StatusIndicator";
-import Transcript from "./components/Transcript";
-import { supabase } from "./lib/supabase";
+import { encode, decodeBase64, decodeAudioData } from "../utils/audio";
+import type { TranscriptEntry, SessionState } from "../types";
+import { Speaker } from "../types";
+import MicrophoneIcon from "../components/MicrophoneIcon";
+import StatusIndicator from "../components/StatusIndicator";
+import Transcript from "../components/Transcript";
+import { supabase } from "../lib/supabase";
+import { FaMicrophone } from "react-icons/fa";
+import { IoIosArrowBack } from "react-icons/io";
+import { useNavigate } from "react-router-dom";
 
 interface LiveSession {
   close: () => void;
@@ -22,18 +25,20 @@ const MVP_USER_ID = "d9b24999-4a64-452b-b382-563ee13eebce";
 const MVP_SCENARIO_ID = "3ae13d78-c10f-4993-8b89-83257031590e";
 const MVP_BADGE_ID = "6a0174ba-4475-4974-8116-1ca09571b6e5";
 
-
 const INPUT_SAMPLE_RATE = 24000;
 const OUTPUT_SAMPLE_RATE = 24000;
 
-const App: React.FC = () => {
+export const Session: React.FC = () => {
   const [sessionState, setSessionState] = useState<SessionState>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [systemInstruction, setSystemInstruction] = useState<string | null>(null);
+  const [systemInstruction, setSystemInstruction] = useState<string | null>(
+    null
+  );
   const [isLoadingPrompt, setIsLoadingPrompt] = useState<boolean>(true);
+  const navigate = useNavigate();
 
   const sessionPromise = useRef<Promise<LiveSession> | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -55,21 +60,24 @@ const App: React.FC = () => {
         const { data, error } = await supabase
           .from("scenarios")
           .select("ia_context_prompt")
-          .eq("id", MVP_SCENARIO_ID) 
+          .eq("id", MVP_SCENARIO_ID)
           .single();
 
         if (error) throw error;
-        
-        if (data && data.ia_context_prompt) {
-          setSystemInstruction(data.ia_context_prompt); 
-        } else {
-          throw new Error("Cenário não encontrado ou prompt vazio no Supabase.");
-        }
 
+        if (data && data.ia_context_prompt) {
+          setSystemInstruction(data.ia_context_prompt);
+        } else {
+          throw new Error(
+            "Cenário não encontrado ou prompt vazio no Supabase."
+          );
+        }
       } catch (error) {
         const dbError = error as { message: string };
         console.error("Falha ao carregar prompt do Supabase:", error);
-        setErrorMessage(`Erro fatal: Não foi possível carregar o cenário. ${dbError.message}`);
+        setErrorMessage(
+          `Erro fatal: Não foi possível carregar o cenário. ${dbError.message}`
+        );
         setSessionState("error");
       } finally {
         setIsLoadingPrompt(false);
@@ -104,8 +112,9 @@ const App: React.FC = () => {
   }, []);
 
   const parseFeedback = (modelText: string) => {
-    const summary = modelText.split("STAR Method:")[0]?.trim() || "Feedback não capturado.";
-    
+    const summary =
+      modelText.split("STAR Method:")[0]?.trim() || "Feedback não capturado.";
+
     const scores = {
       structure: 0,
       impact: 0,
@@ -115,41 +124,43 @@ const App: React.FC = () => {
 
     const starMatch = modelText.match(/STAR Method: (\d+)/);
     if (starMatch) scores.structure = parseInt(starMatch[1], 10);
-    
+
     const storyMatch = modelText.match(/Storytelling: (\d+)/);
     if (storyMatch) scores.impact = parseInt(storyMatch[1], 10);
 
     const persMatch = modelText.match(/Persuasion: (\d+)/);
     if (persMatch) scores.persuasion = parseInt(persMatch[1], 10);
-    
+
     const clarityMatch = modelText.match(/Clarity: (\d+)/);
     if (clarityMatch) scores.clarity = parseInt(clarityMatch[1], 10);
-    
+
     return { summary, scores };
   };
 
-  const saveFinalFeedback = async (sessionId: string, scores: any, summary: string) => {
+  const saveFinalFeedback = async (
+    sessionId: string,
+    scores: any,
+    summary: string
+  ) => {
     if (!sessionId) return;
 
     const { error: feedbackError } = await supabase
-      .from('session_feedback')
+      .from("session_feedback")
       .insert({
         session_id: sessionId,
         score_structure: scores.structure,
         score_impact: scores.impact,
         score_persuasion: scores.persuasion,
         score_clarity: scores.clarity,
-        ia_summary: summary
+        ia_summary: summary,
       });
     if (feedbackError) console.error("Erro ao salvar feedback:", feedbackError);
-    
-    const { error: badgeError } = await supabase
-      .from('user_badges')
-      .insert({
-        user_id: MVP_USER_ID,
-        badge_id: MVP_BADGE_ID
-      });
-    if (badgeError && badgeError.code !== '23505') {
+
+    const { error: badgeError } = await supabase.from("user_badges").insert({
+      user_id: MVP_USER_ID,
+      badge_id: MVP_BADGE_ID,
+    });
+    if (badgeError && badgeError.code !== "23505") {
       console.warn("Erro ao conceder medalha:", badgeError);
     }
   };
@@ -157,7 +168,7 @@ const App: React.FC = () => {
   const startSession = useCallback(async () => {
     if (isLoadingPrompt || !systemInstruction) {
       setErrorMessage("Aguarde, carregando cenário...");
-      return; 
+      return;
     }
 
     setSessionState("connecting");
@@ -168,19 +179,18 @@ const App: React.FC = () => {
 
     try {
       const { data: sessionData, error: sessionError } = await supabase
-        .from('simulation_sessions')
+        .from("simulation_sessions")
         .insert({
           user_id: MVP_USER_ID,
-          scenario_id: MVP_SCENARIO_ID
+          scenario_id: MVP_SCENARIO_ID,
         })
-        .select('id')
+        .select("id")
         .single();
-      
+
       if (sessionError) throw sessionError;
-      
+
       sessionId = sessionData.id;
       setCurrentSessionId(sessionId);
-
     } catch (error) {
       console.error("Falha ao criar sessão no Supabase:", error);
       const dbError = error as { message: string };
@@ -280,17 +290,19 @@ const App: React.FC = () => {
     }
   }, [stopSession, systemInstruction, isLoadingPrompt]);
 
-  const persistTurn = async (sessionId: string, role: 'user' | 'ia', content: string) => {
-    if (!sessionId || !content.trim()) return; 
+  const persistTurn = async (
+    sessionId: string,
+    role: "user" | "ia",
+    content: string
+  ) => {
+    if (!sessionId || !content.trim()) return;
 
-    const { error } = await supabase
-      .from('messages')
-      .insert({
-        session_id: sessionId,
-        role: role,
-        content: content
-      });
-    
+    const { error } = await supabase.from("messages").insert({
+      session_id: sessionId,
+      role: role,
+      content: content,
+    });
+
     if (error) {
       console.warn("Falha ao salvar mensagem:", error.message);
     }
@@ -349,14 +361,14 @@ const App: React.FC = () => {
       const userInputText = transcriptionRefs.current.userInput;
       const modelOutputText = transcriptionRefs.current.modelOutput;
 
-      persistTurn(sessionId, 'user', userInputText);
-      persistTurn(sessionId, 'ia', modelOutputText);
+      persistTurn(sessionId, "user", userInputText);
+      persistTurn(sessionId, "ia", modelOutputText);
 
       if (modelOutputText.includes("STAR Method:")) {
         const { summary, scores } = parseFeedback(modelOutputText);
 
         saveFinalFeedback(sessionId, scores, summary);
-        
+
         stopSession();
       }
 
@@ -454,7 +466,7 @@ const App: React.FC = () => {
       default:
         return {
           text: "Iniciar",
-          disabled: !!errorMessage, 
+          disabled: !!errorMessage,
           bg: "bg-purple-600 hover:bg-purple-700",
           pulse: false,
         };
@@ -464,18 +476,20 @@ const App: React.FC = () => {
   const { text, disabled, bg, pulse } = getButtonState();
 
   return (
-    <div className="flex flex-col h-screen bg-gray-800 text-gray-100 font-sans">
-      <header className="flex items-center justify-between p-4 border-b border-gray-700 bg-gray-900 shadow-md">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-bold flex items-center gap-3 items-center justify-center">
-            <img src="/logo.svg" alt="Logo" width={40} />
-            <img src="/logo_name.svg" alt="Logo" width={80} />
-          </h1>
+    <div className="flex flex-col h-screen text-gray-100 font-sans">
+      <header className=" border-gray-700">
+        <div className="bg-[#1E0037] h-5"></div>
+        <div className="flex justify-between items-center w-full mt-4 px-6 pb-4">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate(-1)} className="flex items-center justify-center w-12 h-12 rounded-full bg-[#1E0037]">
+              <IoIosArrowBack className="text-white h-10 w-10" />
+            </button>
+          </div>
+          <StatusIndicator state={sessionState} />
         </div>
-        <StatusIndicator state={sessionState} />
       </header>
 
-      <main className="flex-grow flex flex-col overflow-hidden">
+      <main className="grow flex flex-col overflow-hidden">
         {errorMessage && (
           <div className="p-4 bg-red-800 text-white text-center">
             <p>{errorMessage}</p>
@@ -484,7 +498,7 @@ const App: React.FC = () => {
         <Transcript transcript={transcript} IA_name={"Ricardo Vasconcelos"} />
       </main>
 
-      <footer className="p-4 bg-gray-900/80 backdrop-blur-sm border-t border-gray-700">
+      <footer className="backdrop-blur-sm">
         <div className="flex justify-center items-center">
           <button
             onClick={handleToggleSession}
@@ -494,14 +508,14 @@ const App: React.FC = () => {
             }`}
           >
             <div className={`relative w-6 h-6 ${pulse ? "animate-pulse" : ""}`}>
-              <MicrophoneIcon className="w-6 h-6" />
+              <FaMicrophone className="w-6 h-6" />
             </div>
             <span>{text}</span>
           </button>
         </div>
+        <div className="bg-[#1E0037] h-5 mt-4"></div>
       </footer>
     </div>
   );
 };
 
-export default App;
